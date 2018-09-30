@@ -535,6 +535,187 @@ cdef class BestSplitter(BaseDenseSplitter):
         return 0
 
 
+cdef class DefinedSplitter(BaseDenseSplitter):
+    """Splitter for finding the best split."""
+    def __reduce__(self):
+        return (DefinedSplitter, (self.criterion,
+                                  self.max_features,
+                                  self.min_samples_leaf,
+                                  self.min_weight_leaf,
+                                  self.random_state,
+                                  self.presort), self.__getstate__())
+
+    cdef int forced_split(self, double impurity, SplitRecord* split,
+                          SIZE_t* n_constant_features,
+                          SIZE_t root_feature,
+                          double root_threshold) nogil except -1:
+        """Find the best split on node samples[start:end] for defined feature
+
+        Returns -1 in case of failure to allocate memory (and raise MemoryError)
+        or 0 otherwise.
+        """
+        # Find the best split
+        cdef SIZE_t* samples = self.samples
+        cdef SIZE_t start = self.start
+        cdef SIZE_t end = self.end
+
+        cdef SIZE_t* features = self.features
+        cdef SIZE_t* constant_features = self.constant_features
+        cdef SIZE_t n_features = self.n_features
+
+        cdef DTYPE_t* X = self.X
+        cdef DTYPE_t* Xf = self.feature_values
+        cdef SIZE_t X_sample_stride = self.X_sample_stride
+        cdef SIZE_t X_feature_stride = self.X_feature_stride
+        cdef SIZE_t max_features = self.max_features
+        cdef SIZE_t min_samples_leaf = self.min_samples_leaf
+        cdef double min_weight_leaf = self.min_weight_leaf
+        cdef UINT32_t* random_state = &self.rand_r_state
+
+        cdef INT32_t* X_idx_sorted = self.X_idx_sorted_ptr
+        cdef SIZE_t* sample_mask = self.sample_mask
+
+        cdef SplitRecord best, current
+        cdef double current_proxy_improvement = -INFINITY
+        cdef double best_proxy_improvement = -INFINITY
+
+        cdef SIZE_t f_i = n_features
+        cdef SIZE_t f_j
+        cdef SIZE_t tmp
+        cdef SIZE_t p
+        cdef SIZE_t feature_idx_offset
+        cdef SIZE_t feature_offset
+        cdef SIZE_t i
+        cdef SIZE_t j
+
+        cdef SIZE_t n_visited_features = 0
+        # Number of features discovered to be constant during the split search
+        cdef SIZE_t n_found_constants = 0
+        # Number of features known to be constant and drawn without replacement
+        cdef SIZE_t n_drawn_constants = 0
+        cdef SIZE_t n_known_constants = n_constant_features[0]
+        # n_total_constants = n_known_constants + n_found_constants
+        cdef SIZE_t n_total_constants = n_known_constants
+        cdef DTYPE_t current_feature_value
+        cdef SIZE_t partition_end
+
+        _init_split(&best, end)
+
+        if self.presort == 1:
+            for p in range(start, end):
+                sample_mask[samples[p]] = 1
+
+        current.feature = features[root_feature]
+        feature_offset = self.X_feature_stride * current.feature
+
+        # Sort samples along that feature; either by utilizing
+        # presorting, or by copying the values into an array and
+        # sorting the array in a manner which utilizes the cache more
+        # effectively.
+        if self.presort == 1:
+            p = start
+            feature_idx_offset = self.X_idx_sorted_stride * current.feature
+
+            for i in range(self.n_total_samples):
+                j = X_idx_sorted[i + feature_idx_offset]
+                if sample_mask[j] == 1:
+                    samples[p] = j
+                    Xf[p] = X[self.X_sample_stride * j + feature_offset]
+                    p += 1
+        else:
+            for i in range(start, end):
+                Xf[i] = X[self.X_sample_stride * samples[i] + feature_offset]
+
+            sort(Xf + start, samples + start, end - start)
+
+        # Evaluate all splits
+        self.criterion.reset()
+        p = start
+
+        while p < end:
+            while (p + 1 < end and
+                   Xf[p + 1] <= Xf[p] + FEATURE_THRESHOLD):
+                p += 1
+
+            # (p + 1 >= end) or (X[samples[p + 1], current.feature] >
+            #                    X[samples[p], current.feature])
+            p += 1
+            # (p >= end) or (X[samples[p], current.feature] >
+            #                X[samples[p - 1], current.feature])
+
+            if p < end:
+                current.pos = p
+
+                # Reject if min_samples_leaf is not guaranteed
+                if (((current.pos - start) < min_samples_leaf) or
+                        ((end - current.pos) < min_samples_leaf)):
+                    continue
+
+                self.criterion.update(current.pos)
+
+                # Reject if min_weight_leaf is not satisfied
+                if ((self.criterion.weighted_n_left < min_weight_leaf) or
+                        (self.criterion.weighted_n_right < min_weight_leaf)):
+                    continue
+
+                current_proxy_improvement = self.criterion.proxy_impurity_improvement()
+
+                if current_proxy_improvement > best_proxy_improvement:
+                    best_proxy_improvement = current_proxy_improvement
+                    # sum of halves is used to avoid infinite value
+                    current.threshold = Xf[p - 1] / 2.0 + Xf[p] / 2.0
+
+                    if ((current.threshold == Xf[p]) or
+                        (current.threshold == INFINITY) or
+                        (current.threshold == -INFINITY)):
+                        current.threshold = Xf[p - 1]
+
+                    best = current  # copy
+
+        # Reorganize into samples[start:best.pos] + samples[best.pos:end]
+        if best.pos < end:
+            feature_offset = X_feature_stride * best.feature
+            partition_end = end
+            p = start
+
+            while p < partition_end:
+                if X[X_sample_stride * samples[p] + feature_offset] <= best.threshold:
+                    p += 1
+
+                else:
+                    partition_end -= 1
+
+                    tmp = samples[partition_end]
+                    samples[partition_end] = samples[p]
+                    samples[p] = tmp
+
+            self.criterion.reset()
+            self.criterion.update(best.pos)
+            best.improvement = self.criterion.impurity_improvement(impurity)
+            self.criterion.children_impurity(&best.impurity_left,
+                                             &best.impurity_right)
+
+        # Reset sample mask
+        if self.presort == 1:
+            for p in range(start, end):
+                sample_mask[samples[p]] = 0
+
+        # Respect invariant for constant features: the original order of
+        # element in features[:n_known_constants] must be preserved for sibling
+        # and child nodes
+        memcpy(features, constant_features, sizeof(SIZE_t) * n_known_constants)
+
+        # Copy newly found constant features
+        memcpy(constant_features + n_known_constants,
+               features + n_known_constants,
+               sizeof(SIZE_t) * n_found_constants)
+
+        # Return values
+        split[0] = best
+        n_constant_features[0] = n_total_constants
+        return 0
+
+
 # Sort n-element arrays pointed to by Xf and samples, simultaneously,
 # by the values in Xf. Algorithm: Introsort (Musser, SP&E, 1997).
 cdef inline void sort(DTYPE_t* Xf, SIZE_t* samples, SIZE_t n) nogil:

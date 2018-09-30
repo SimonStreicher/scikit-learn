@@ -41,6 +41,7 @@ from ._criterion import Criterion
 from ._splitter import Splitter
 from ._tree import DepthFirstTreeBuilder
 from ._tree import BestFirstTreeBuilder
+from ._tree import DefinedTreeBuilder
 from ._tree import Tree
 from . import _tree, _splitter, _criterion
 
@@ -62,7 +63,8 @@ CRITERIA_REG = {"mse": _criterion.MSE, "friedman_mse": _criterion.FriedmanMSE,
                 "mae": _criterion.MAE}
 
 DENSE_SPLITTERS = {"best": _splitter.BestSplitter,
-                   "random": _splitter.RandomSplitter}
+                   "random": _splitter.RandomSplitter,
+                   "defined": _splitter.DefinedSplitter}
 
 SPARSE_SPLITTERS = {"best": _splitter.BestSparseSplitter,
                     "random": _splitter.RandomSparseSplitter}
@@ -92,6 +94,8 @@ class BaseDecisionTree(six.with_metaclass(ABCMeta, BaseEstimator)):
                  random_state,
                  min_impurity_decrease,
                  min_impurity_split,
+                 root_split_feature,
+                 root_split_threshold,
                  class_weight=None,
                  presort=False):
         self.criterion = criterion
@@ -105,6 +109,8 @@ class BaseDecisionTree(six.with_metaclass(ABCMeta, BaseEstimator)):
         self.max_leaf_nodes = max_leaf_nodes
         self.min_impurity_decrease = min_impurity_decrease
         self.min_impurity_split = min_impurity_split
+        self.root_split_feature = root_split_feature,
+        self.root_split_threshold = root_split_threshold,
         self.class_weight = class_weight
         self.presort = presort
 
@@ -346,7 +352,17 @@ class BaseDecisionTree(six.with_metaclass(ABCMeta, BaseEstimator)):
         self.tree_ = Tree(self.n_features_, self.n_classes_, self.n_outputs_)
 
         # Use BestFirst if max_leaf_nodes given; use DepthFirst otherwise
-        if max_leaf_nodes < 0:
+        if self.root_split_feature is not None:
+            builder = DefinedTreeBuilder(splitter, min_samples_split,
+                                         min_samples_leaf,
+                                         min_weight_leaf,
+                                         max_depth,
+                                         max_leaf_nodes,
+                                         self.min_impurity_decrease,
+                                         min_impurity_split,
+                                         self.root_split_feature,
+                                         self.root_split_threshold)
+        elif max_leaf_nodes < 0:
             builder = DepthFirstTreeBuilder(splitter, min_samples_split,
                                             min_samples_leaf,
                                             min_weight_leaf,
@@ -893,15 +909,17 @@ class DecisionTreeRegressor(BaseDecisionTree, RegressorMixin):
         using the mean of each terminal node, "friedman_mse", which uses mean
         squared error with Friedman's improvement score for potential splits,
         and "mae" for the mean absolute error, which minimizes the L1 loss
-        using the median of each terminal node.
+        using the median of each terminal node. Added "forced" option that splits
+        according to splitvalues_dict.
 
         .. versionadded:: 0.18
-           Mean Absolute Error (MAE) criterion.
+           Mean Absolute Error (MAE) criterion..
 
     splitter : string, optional (default="best")
         The strategy used to choose the split at each node. Supported
         strategies are "best" to choose the best split and "random" to choose
-        the best random split.
+        the best random split, as well as "defined" which follows the
+        splitting_dictionary requirement and follows "best" for undefined nodes.
 
     max_depth : int or None, optional (default=None)
         The maximum depth of the tree. If None, then nodes are expanded until
@@ -993,6 +1011,14 @@ class DecisionTreeRegressor(BaseDecisionTree, RegressorMixin):
            ``min_impurity_decrease`` in 0.19 and will be removed in 0.21.
            Use ``min_impurity_decrease`` instead.
 
+    root_split_feature : int, optional (default=None)
+        Index of root node to use for splitting
+        # TODO: Generalise
+
+    root_split_threshold : float, optional (default=None)
+        Threshold to use when splitting root node
+        # TODO: Generalise
+
     presort : bool, optional (default=False)
         Whether to presort the data to speed up the finding of best splits in
         fitting. For the default settings of a decision tree on large
@@ -1082,6 +1108,8 @@ class DecisionTreeRegressor(BaseDecisionTree, RegressorMixin):
                  max_leaf_nodes=None,
                  min_impurity_decrease=0.,
                  min_impurity_split=None,
+                 root_split_feature=None,
+                 root_split_threshold=None,
                  presort=False):
         super(DecisionTreeRegressor, self).__init__(
             criterion=criterion,
@@ -1095,6 +1123,8 @@ class DecisionTreeRegressor(BaseDecisionTree, RegressorMixin):
             random_state=random_state,
             min_impurity_decrease=min_impurity_decrease,
             min_impurity_split=min_impurity_split,
+            root_split_feature=root_split_feature,
+            root_split_threshold=root_split_threshold,
             presort=presort)
 
     def fit(self, X, y, sample_weight=None, check_input=True,
