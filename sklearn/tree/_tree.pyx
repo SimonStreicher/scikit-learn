@@ -325,6 +325,7 @@ cdef class DefinedTreeBuilder(TreeBuilder):
 
         # Parameters
         cdef Splitter splitter = self.splitter
+        cdef Splitter defined_splitter = self.defined_splitter
         cdef SIZE_t max_depth = self.max_depth
         cdef SIZE_t min_samples_leaf = self.min_samples_leaf
         cdef double min_weight_leaf = self.min_weight_leaf
@@ -382,7 +383,7 @@ cdef class DefinedTreeBuilder(TreeBuilder):
 
                 n_node_samples = end - start
                 splitter.node_reset(start, end, &weighted_n_node_samples)
-                forced_splitter.node_reset(start, end, &weighted_n_node_samples)
+                defined_splitter.node_reset(start, end, &weighted_n_node_samples)
 
                 is_leaf = (depth >= max_depth or
                            n_node_samples < min_samples_split or
@@ -399,8 +400,8 @@ cdef class DefinedTreeBuilder(TreeBuilder):
                 if not is_leaf:
 
                     if root:
-                        forced_splitter.forced_split(impurity, &split, &n_constant_features,
-                                                     root_feature, root_threshold)
+                        defined_splitter.forced_split(impurity, &split, &n_constant_features,
+                                                      root_feature, root_threshold)
                         root = 0
                     else:
                         splitter.node_split(impurity, &split, &n_constant_features)

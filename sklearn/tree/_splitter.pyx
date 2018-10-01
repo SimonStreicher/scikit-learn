@@ -228,6 +228,21 @@ cdef class Splitter:
 
         pass
 
+    cdef int forced_split(self, double impurity, SplitRecord* split,
+                          SIZE_t* n_constant_features,
+                          SIZE_t root_feature,
+                          double root_threshold) nogil except -1:
+        """Find the best split on node samples[start:end].
+
+        This is a placeholder method. The majority of computation will be done
+        here.
+
+        It should return -1 upon errors.
+        """
+
+        pass
+
+
     cdef void node_value(self, double* dest) nogil:
         """Copy the value of node samples[start:end] into dest."""
 
