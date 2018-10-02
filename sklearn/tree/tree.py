@@ -109,8 +109,8 @@ class BaseDecisionTree(six.with_metaclass(ABCMeta, BaseEstimator)):
         self.max_leaf_nodes = max_leaf_nodes
         self.min_impurity_decrease = min_impurity_decrease
         self.min_impurity_split = min_impurity_split
-        self.root_split_feature = root_split_feature,
-        self.root_split_threshold = root_split_threshold,
+        self.root_split_feature = root_split_feature
+        self.root_split_threshold = root_split_threshold
         self.class_weight = class_weight
         self.presort = presort
 
@@ -352,16 +352,26 @@ class BaseDecisionTree(six.with_metaclass(ABCMeta, BaseEstimator)):
         self.tree_ = Tree(self.n_features_, self.n_classes_, self.n_outputs_)
 
         # Use BestFirst if max_leaf_nodes given; use DepthFirst otherwise
+
         if self.root_split_feature is not None:
-            builder = DefinedTreeBuilder(splitter, min_samples_split,
+            root_split_feature = int(self.root_split_feature)
+            root_split_threshold = np.double(self.root_split_threshold)
+            defined_splitter = _splitter.DefinedSplitter(criterion,
+                                                         self.max_features_,
+                                                         min_samples_leaf,
+                                                         min_weight_leaf,
+                                                         random_state,
+                                                         self.presort)
+            builder = DefinedTreeBuilder(splitter,
+                                         defined_splitter,
+                                         min_samples_split,
                                          min_samples_leaf,
                                          min_weight_leaf,
                                          max_depth,
-                                         max_leaf_nodes,
                                          self.min_impurity_decrease,
                                          min_impurity_split,
-                                         self.root_split_feature,
-                                         self.root_split_threshold)
+                                         root_split_feature,
+                                         root_split_threshold)
         elif max_leaf_nodes < 0:
             builder = DepthFirstTreeBuilder(splitter, min_samples_split,
                                             min_samples_leaf,

@@ -91,6 +91,7 @@ cdef class TreeBuilder:
     # evaluation order, e.g. depth-first or best-first.
 
     cdef Splitter splitter              # Splitting algorithm
+    cdef Splitter defined_splitter
 
     cdef SIZE_t min_samples_split       # Minimum number of samples in an internal node
     cdef SIZE_t min_samples_leaf        # Minimum number of samples in a leaf
@@ -98,6 +99,8 @@ cdef class TreeBuilder:
     cdef SIZE_t max_depth               # Maximal tree depth
     cdef double min_impurity_split
     cdef double min_impurity_decrease   # Impurity threshold for early stopping
+    cdef SIZE_t root_feature
+    cdef double root_threshold
 
     cpdef build(self, Tree tree, object X, np.ndarray y,
                 np.ndarray sample_weight=*,
