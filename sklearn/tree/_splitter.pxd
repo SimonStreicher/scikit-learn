@@ -97,8 +97,8 @@ cdef class Splitter:
                           double impurity,   # Impurity of the node
                           SplitRecord* split,
                           SIZE_t* n_constant_features,
-                          SIZE_t root_feature,
-                          double root_threshold) nogil except -1
+                          SIZE_t forced_feature,
+                          double forced_threshold) nogil except -1
 
     cdef void node_value(self, double* dest) nogil
 

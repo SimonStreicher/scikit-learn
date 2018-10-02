@@ -230,8 +230,8 @@ cdef class Splitter:
 
     cdef int forced_split(self, double impurity, SplitRecord* split,
                           SIZE_t* n_constant_features,
-                          SIZE_t root_feature,
-                          double root_threshold) nogil except -1:
+                          SIZE_t forced_feature,
+                          double forced_threshold) nogil except -1:
         """Find the best split on node samples[start:end].
 
         This is a placeholder method. The majority of computation will be done
@@ -562,8 +562,8 @@ cdef class DefinedSplitter(BaseDenseSplitter):
 
     cdef int forced_split(self, double impurity, SplitRecord* split,
                           SIZE_t* n_constant_features,
-                          SIZE_t root_feature,
-                          double root_threshold) nogil except -1:
+                          SIZE_t forced_feature,
+                          double forced_threshold) nogil except -1:
         """Find the best split on node samples[start:end] for defined feature
 
         Returns -1 in case of failure to allocate memory (and raise MemoryError)
@@ -620,7 +620,7 @@ cdef class DefinedSplitter(BaseDenseSplitter):
             for p in range(start, end):
                 sample_mask[samples[p]] = 1
 
-        current.feature = features[root_feature]
+        current.feature = features[forced_feature]
         feature_offset = self.X_feature_stride * current.feature
 
         # Sort samples along that feature; either by utilizing
@@ -643,40 +643,73 @@ cdef class DefinedSplitter(BaseDenseSplitter):
 
             sort(Xf + start, samples + start, end - start)
 
-        # Evaluate all splits
-        self.criterion.reset()
-        p = start
+        # Force best pos here if certain conditions are met
+        # For example, if forced_threshold != -999
 
-        while p < end:
-            while (p + 1 < end and
-                   Xf[p + 1] <= Xf[p] + FEATURE_THRESHOLD):
+        if ((forced_threshold < -998) and (forced_threshold > -1000)):
+
+            # Evaluate all splits
+            self.criterion.reset()
+            p = start
+
+            while p < end:
+                while (p + 1 < end and
+                       Xf[p + 1] <= Xf[p] + FEATURE_THRESHOLD):
+                    p += 1
+
+                # (p + 1 >= end) or (X[samples[p + 1], current.feature] >
+                #                    X[samples[p], current.feature])
                 p += 1
+                # (p >= end) or (X[samples[p], current.feature] >
+                #                X[samples[p - 1], current.feature])
 
-            # (p + 1 >= end) or (X[samples[p + 1], current.feature] >
-            #                    X[samples[p], current.feature])
-            p += 1
-            # (p >= end) or (X[samples[p], current.feature] >
-            #                X[samples[p - 1], current.feature])
+                if p < end:
+                    current.pos = p
 
-            if p < end:
-                current.pos = p
+                    # Reject if min_samples_leaf is not guaranteed
+                    if (((current.pos - start) < min_samples_leaf) or
+                            ((end - current.pos) < min_samples_leaf)):
+                        continue
 
-                # Reject if min_samples_leaf is not guaranteed
-                if (((current.pos - start) < min_samples_leaf) or
-                        ((end - current.pos) < min_samples_leaf)):
-                    continue
+                    self.criterion.update(current.pos)
 
-                self.criterion.update(current.pos)
+                    # Reject if min_weight_leaf is not satisfied
+                    if ((self.criterion.weighted_n_left < min_weight_leaf) or
+                            (self.criterion.weighted_n_right < min_weight_leaf)):
+                        continue
 
-                # Reject if min_weight_leaf is not satisfied
-                if ((self.criterion.weighted_n_left < min_weight_leaf) or
-                        (self.criterion.weighted_n_right < min_weight_leaf)):
-                    continue
+                    current_proxy_improvement = self.criterion.proxy_impurity_improvement()
 
-                current_proxy_improvement = self.criterion.proxy_impurity_improvement()
+                    if current_proxy_improvement > best_proxy_improvement:
+                        best_proxy_improvement = current_proxy_improvement
+                        # sum of halves is used to avoid infinite value
+                        current.threshold = Xf[p - 1] / 2.0 + Xf[p] / 2.0
 
-                if current_proxy_improvement > best_proxy_improvement:
-                    best_proxy_improvement = current_proxy_improvement
+                        if ((current.threshold == Xf[p]) or
+                            (current.threshold == INFINITY) or
+                            (current.threshold == -INFINITY)):
+                            current.threshold = Xf[p - 1]
+
+                        best = current  # copy
+
+        else:
+            # Evaluate forced split
+            self.criterion.reset()
+            p = start
+
+            while p < end:
+                while (p + 1 < end and
+                       Xf[p + 1] <= Xf[p] + FEATURE_THRESHOLD):
+                    p += 1
+
+                # (p + 1 >= end) or (X[samples[p + 1], current.feature] >
+                #                    X[samples[p], current.feature])
+                p += 1
+                # (p >= end) or (X[samples[p], current.feature] >
+                #                X[samples[p - 1], current.feature])
+
+                if p < end:
+                    current.pos = p
                     # sum of halves is used to avoid infinite value
                     current.threshold = Xf[p - 1] / 2.0 + Xf[p] / 2.0
 
@@ -685,7 +718,12 @@ cdef class DefinedSplitter(BaseDenseSplitter):
                         (current.threshold == -INFINITY)):
                         current.threshold = Xf[p - 1]
 
-                    best = current  # copy
+                    # Assign first time threshold equals or passes forced threshold
+                    if (forced_threshold <= current.threshold):
+
+                        best = current
+                        continue
+
 
         # Reorganize into samples[start:best.pos] + samples[best.pos:end]
         if best.pos < end:
