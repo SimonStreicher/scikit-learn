@@ -644,7 +644,7 @@ cdef class DefinedSplitter(BaseDenseSplitter):
             sort(Xf + start, samples + start, end - start)
 
         # Force best pos here if certain conditions are met
-        # For example, if forced_threshold != -999
+        # For example, if forced_threshold == -999
 
         if ((forced_threshold < -998) and (forced_threshold > -1000)):
 
@@ -693,6 +693,9 @@ cdef class DefinedSplitter(BaseDenseSplitter):
                         best = current  # copy
 
         else:
+            #with gil:
+            #    print(end)
+            #    print(forced_threshold)
             # Evaluate forced split
             self.criterion.reset()
             p = start
@@ -708,6 +711,9 @@ cdef class DefinedSplitter(BaseDenseSplitter):
                 # (p >= end) or (X[samples[p], current.feature] >
                 #                X[samples[p - 1], current.feature])
 
+                #with gil:
+                #    print(Xf[p])
+
                 if p < end:
                     current.pos = p
                     # sum of halves is used to avoid infinite value
@@ -720,9 +726,8 @@ cdef class DefinedSplitter(BaseDenseSplitter):
 
                     # Assign first time threshold equals or passes forced threshold
                     if (forced_threshold <= current.threshold):
-
                         best = current
-                        continue
+                        break
 
 
         # Reorganize into samples[start:best.pos] + samples[best.pos:end]
