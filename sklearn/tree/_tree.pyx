@@ -125,6 +125,17 @@ cdef class TreeBuilder:
 
         return X, y, sample_weight
 
+
+    cdef inline _check_forced_input(self, np.ndarray forced_features, np.ndarray forced_thresholds):
+        """Check input dtype, layout and format"""
+
+        forced_features = np.asarray(forced_features, dtype=np.intp,
+                                    order="C")
+        forced_features = np.asarray(forced_features, dtype=DOUBLE,
+                                    order="C")
+
+        return forced_features, forced_thresholds
+
 # Depth first builder ---------------------------------------------------------
 
 cdef class DepthFirstTreeBuilder(TreeBuilder):
@@ -288,8 +299,9 @@ cdef class DefinedTreeBuilder(TreeBuilder):
                   SIZE_t min_samples_leaf, double min_weight_leaf,
                   SIZE_t max_depth, double min_impurity_decrease,
                   double min_impurity_split,
-                  SIZE_t root_feature,
-                  double root_threshold):
+                  np.ndarray forced_features,
+                  np.ndarray forced_thresholds,
+                  SIZE_t n_forced_features):
         self.splitter = splitter
         self.defined_splitter = defined_splitter
         self.min_samples_split = min_samples_split
@@ -298,8 +310,14 @@ cdef class DefinedTreeBuilder(TreeBuilder):
         self.max_depth = max_depth
         self.min_impurity_decrease = min_impurity_decrease
         self.min_impurity_split = min_impurity_split
-        self.root_feature = root_feature
-        self.root_threshold = root_threshold
+
+        self.n_forced_features = n_forced_features
+
+        forced_features, forced_thresholds = self._check_forced_input(forced_features,
+                                                                      forced_thresholds)
+
+        self.forced_features = forced_features
+        self.forced_thresholds = forced_thresholds
 
     cpdef build(self, Tree tree, object X, np.ndarray y,
                 np.ndarray sample_weight=None,
@@ -332,8 +350,8 @@ cdef class DefinedTreeBuilder(TreeBuilder):
         cdef SIZE_t min_samples_split = self.min_samples_split
         cdef double min_impurity_decrease = self.min_impurity_decrease
         cdef double min_impurity_split = self.min_impurity_split
-        cdef SIZE_t root_feature = self.root_feature
-        cdef double root_threshold = self.root_threshold
+        cdef np.ndarray forced_features = self.forced_features
+        cdef np.ndarray forced_thresholds = self.forced_thresholds
 
         # Recursive partition (without actual recursion)
         splitter.init(X, y, sample_weight_ptr, X_idx_sorted)
@@ -355,7 +373,7 @@ cdef class DefinedTreeBuilder(TreeBuilder):
         cdef SIZE_t n_constant_features
         cdef bint is_leaf
         cdef bint first = 1
-        cdef bint root = 1
+        cdef SIZE_t n_forced_features = self.n_forced_features
         cdef SIZE_t max_depth_seen = -1
         cdef int rc = 0
 
@@ -381,6 +399,7 @@ cdef class DefinedTreeBuilder(TreeBuilder):
                 impurity = stack_record.impurity
                 n_constant_features = stack_record.n_constant_features
 
+
                 n_node_samples = end - start
                 splitter.node_reset(start, end, &weighted_n_node_samples)
                 defined_splitter.node_reset(start, end, &weighted_n_node_samples)
@@ -399,10 +418,11 @@ cdef class DefinedTreeBuilder(TreeBuilder):
 
                 if not is_leaf:
 
-                    if root:
-                        defined_splitter.forced_split(impurity, &split, &n_constant_features,
-                                                      root_feature, root_threshold)
-                        root = 0
+                    if (depth < n_forced_features):
+                            with gil:
+
+                                defined_splitter.forced_split(impurity, &split, &n_constant_features,
+                                                              forced_features[depth], forced_thresholds[depth])
                     else:
                         splitter.node_split(impurity, &split, &n_constant_features)
                     # If EPSILON=0 in the below comparison, float precision

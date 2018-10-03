@@ -99,10 +99,12 @@ cdef class TreeBuilder:
     cdef SIZE_t max_depth               # Maximal tree depth
     cdef double min_impurity_split
     cdef double min_impurity_decrease   # Impurity threshold for early stopping
-    cdef SIZE_t root_feature
-    cdef double root_threshold
+    cdef np.ndarray forced_features
+    cdef np.ndarray forced_thresholds
+    cdef SIZE_t n_forced_features
 
     cpdef build(self, Tree tree, object X, np.ndarray y,
                 np.ndarray sample_weight=*,
                 np.ndarray X_idx_sorted=*)
     cdef _check_input(self, object X, np.ndarray y, np.ndarray sample_weight)
+    cdef _check_forced_input(self, np.ndarray forced_features, np.ndarray forced_thresholds)
