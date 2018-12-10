@@ -41,7 +41,8 @@ from ._criterion import Criterion
 from ._splitter import Splitter
 from ._tree import DepthFirstTreeBuilder
 from ._tree import BestFirstTreeBuilder
-from ._tree import DefinedTreeBuilder
+from ._tree import DepthFirstDefinedTreeBuilder
+from ._tree import BestFirstDefinedTreeBuilder
 from ._tree import Tree
 from . import _tree, _splitter, _criterion
 
@@ -364,17 +365,22 @@ class BaseDecisionTree(six.with_metaclass(ABCMeta, BaseEstimator)):
                                                          min_weight_leaf,
                                                          random_state,
                                                          self.presort)
-            builder = DefinedTreeBuilder(splitter,
-                                         defined_splitter,
-                                         min_samples_split,
-                                         min_samples_leaf,
-                                         min_weight_leaf,
-                                         max_depth,
-                                         self.min_impurity_decrease,
-                                         min_impurity_split,
-                                         forced_split_features,
-                                         forced_split_thresholds,
-                                         int(len(forced_split_features)))
+            if max_leaf_nodes < 0:
+                builder = DepthFirstDefinedTreeBuilder(splitter,
+                                                       defined_splitter,
+                                                       min_samples_split,
+                                                       min_samples_leaf,
+                                                       min_weight_leaf,
+                                                       max_depth,
+                                                       self.min_impurity_decrease,
+                                                       min_impurity_split,
+                                                       forced_split_features,
+                                                       forced_split_thresholds,
+                                                       int(len(forced_split_features)))
+            else:
+                builder = BestFirstDefinedTreeBuilder()
+
+
         elif max_leaf_nodes < 0:
             builder = DepthFirstTreeBuilder(splitter, min_samples_split,
                                             min_samples_leaf,

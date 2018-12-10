@@ -526,6 +526,8 @@ cdef class BestSplitter(BaseDenseSplitter):
             self.criterion.reset()
             self.criterion.update(best.pos)
             best.improvement = self.criterion.impurity_improvement(impurity)
+            with gil:
+                print(best.improvement)
             self.criterion.children_impurity(&best.impurity_left,
                                              &best.impurity_right)
 
@@ -551,7 +553,7 @@ cdef class BestSplitter(BaseDenseSplitter):
 
 
 cdef class DefinedSplitter(BaseDenseSplitter):
-    """Splitter for finding the best split."""
+    """Forces split on defined threshold."""
     def __reduce__(self):
         return (DefinedSplitter, (self.criterion,
                                   self.max_features,
@@ -750,6 +752,8 @@ cdef class DefinedSplitter(BaseDenseSplitter):
             self.criterion.reset()
             self.criterion.update(best.pos)
             best.improvement = self.criterion.impurity_improvement(impurity)
+            with gil:
+                 print(best.improvement)
             self.criterion.children_impurity(&best.impurity_left,
                                              &best.impurity_right)
 
